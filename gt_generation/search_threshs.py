@@ -390,7 +390,7 @@ class ThresholdSearcher:
         cv2.imwrite(output_path, fitted_uint8)
         return fitted_uint8
     
-    def search(self, template_mask, depth_image, depth_image_name="unknown"):
+    def search(self, template_mask, depth_image, depth_image_name, outdir):
         self.currentTMask = template_mask
         self.currentDImg = depth_image
         height, width = depth_image.shape
@@ -432,27 +432,28 @@ class ThresholdSearcher:
                     combined_thresh[y_start:y_end, x_start:x_end] = 255
 
         # 4b) Save raw combined_thresh
-        raw_out_fname = f"{depth_image_name}_combined_thresh.jpg"
-        cv2.imwrite(raw_out_fname, combined_thresh)
+        res = self.apply_threshold(depth_image, combined_thresh)
+        mimg = np.where(res == 0, depth_image, 0).astype(np.uint8)
+        raw_out_fname = outdir + "/" + f"{depth_image_name}_mimg.jpg"
+        cv2.imwrite(raw_out_fname, mimg)
         print(f"Saved raw combined threshold => {raw_out_fname}")
+        # # -----------------------------------------------------
+        # # 5) Build a version with occupant cells as-is, but
+        # #    unoccupied cells => NaN, so the spline can fill them.
+        # # -----------------------------------------------------
+        # combined_thresh_for_spline = combined_thresh.astype(np.float32)
+        # combined_thresh_for_spline[combined_thresh_for_spline == 255] = np.nan
 
-        # -----------------------------------------------------
-        # 5) Build a version with occupant cells as-is, but
-        #    unoccupied cells => NaN, so the spline can fill them.
-        # -----------------------------------------------------
-        combined_thresh_for_spline = combined_thresh.astype(np.float32)
-        combined_thresh_for_spline[combined_thresh_for_spline == 255] = np.nan
+        # # 5b) Fit a continuous spline to fill the NaNs
+        # fitted_float = self.spline_fitter.fit(combined_thresh_for_spline)  # shape => (H, W)
 
-        # 5b) Fit a continuous spline to fill the NaNs
-        fitted_float = self.spline_fitter.fit(combined_thresh_for_spline)  # shape => (H, W)
+        # # 5c) Clip to [0..255], convert to uint8
+        # fitted_uint8 = np.clip(fitted_float, 0, 255).astype(np.uint8)
 
-        # 5c) Clip to [0..255], convert to uint8
-        fitted_uint8 = np.clip(fitted_float, 0, 255).astype(np.uint8)
-
-        # 5d) Save final "processed" image
-        fitted_out_fname = f"{depth_image_name}_processed_combined_thresh.jpg"
-        cv2.imwrite(fitted_out_fname, fitted_uint8)
-        print(f"Saved processed (spline) combined threshold => {fitted_out_fname}")
+        # # 5d) Save final "processed" image
+        # fitted_out_fname = f"{depth_image_name}_processed_combined_thresh.jpg"
+        # cv2.imwrite(fitted_out_fname, fitted_uint8)
+        # print(f"Saved processed (spline) combined threshold => {fitted_out_fname}")
 
 
 def main():
@@ -473,7 +474,7 @@ def main():
         os.makedirs(output_dir)
 
     # Create a ThresholdSearcher object with desired parameters and logging flags.
-    searcher = ThresholdSearcher(glob_step=5)
+    searcher = ThresholdSearcher(glob_step=3)
 
     # Process each matching pair.
     for fname in depth_files:
@@ -489,7 +490,7 @@ def main():
         if depth_image.shape != template_mask.shape:
             raise ValueError(f"Image shape mismatch for {fname}")
 
-        searcher.search(template_mask, depth_image)
+        searcher.search(template_mask, depth_image, fname[:-4], output_dir)
 
 if __name__ == "__main__":
     main()
